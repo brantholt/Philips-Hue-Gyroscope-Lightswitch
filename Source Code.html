@@ -1,0 +1,317 @@
+<!-- Brant Holt 2013 -->
+
+<!-- Philips Hue Light Bulb Brightness and Color Remote Using the Gyroscope DeviceMotion Web API 
+
+This Mobile Web App makes use of the DeviceMotion Events produced when a devices' gyroscope senses motion. The values given when the phone tilts get converted into brightness and color values that get sent, via Asynchronus AJAX calls, to the 'Hue Base', which in turn applies the commands to the lightbulbs themeselves.
+
+API's courtesy of http://developers.meethue.com
+-->
+
+<!doctype html>
+<html manifest="cache.appcache">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Gyroscope Light Switch</title>
+<style type="text/css">
+html, body{
+	height:100%;
+	width:100%;
+	margin:0;
+	padding:0;
+	background-color:black;
+	overflow:hidden;
+}
+
+#background{
+	height:100%;
+	width:100%;
+	margin:0;
+	padding:0;
+	background-color:black;
+	overflow:hidden;
+}
+
+#nameContainer{
+	text-align:center;
+	position:absolute;
+	width:1000px;
+	height:20px;
+	top:20px;
+	left:50%;
+	margin-left:-500px;
+	color:white;
+}
+
+.ring {
+    position:absolute;
+    width:95px;
+    height:95px;
+    -webkit-border-radius:100%;
+    background:transparent;
+	-webkit-box-shadow:0px 0px 10px 0px rgba(50, 50, 50, 1), inset 0px 0px 10px 0px rgba(50, 50, 50, 1);
+    border:6px solid #333;
+}
+.ringStartAnimation{
+	visibility:visible;
+	-webkit-animation:ringPulseAnimation 1s infinite ease-in-out;
+}
+@-webkit-keyframes ringPulseAnimation {
+	0% {border: 6px solid #6F0;}
+	50% {border:6px solid #333;}
+	100% {border: 6px solid #6F0;}
+}
+</style>
+<script src="script/jquery-1.11.1.min.js"></script>
+<script type="application/javascript" src="script/fastclick.js"></script> 
+<script type="text/javascript" src="script/tinycolor.js"></script>
+-->
+<script type="application/javascript">
+var bridgeIP = "192.168.1.3", serverIP = "127.0.0.1", baseURL = "";//figure out if local or not and change ips , make sure port forwarding is on.
+var lightData = {"0":{"state":{"hue":0,"sat":0,"bri":0},"name":""}}, currentLight = "0";
+var gyroData = {"x":0,"y":0,"z":0}, gyroInterval;
+var bgElem;
+
+window.addEventListener('load', function () {
+	if ((/iPhone|iPod|iPad/).test(navigator.userAgent)) {
+		bgElem = d("background");
+		FastClick.attach(document.body);
+		//onOrientationChange, reloadbrowser or restart all functions. have an ultimate clear all function
+		if(validIP(bridgeIP)){
+			baseURL = "http://"+serverIP+":80/api/developerID/lights/";
+		}
+		if(baseURL !== ""){
+			getAllLights();
+		}
+	}
+}, false);
+
+function validIP(address) {
+	var ipPattern =  /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+	if (ipPattern.test(address)) {  
+		return true;
+	}
+	return false;
+}
+
+function getAllLights(){
+	$.ajax({url:baseURL,
+			async:"false",
+			crossDomain:"true",
+			type:"GET",
+			complete: function(lights) {
+				var tempList = $.parseJSON(lights.responseText);
+				checkList(tempList);
+			}
+	});
+}
+
+function checkList(lightList){
+	if(!lightList['0']){ //if not errors
+		var listLength = 0;
+		for(var k in lightList) if(lightList.hasOwnProperty(k)) listLength++; //gets length of json object array with no .length property**
+		if(listLength > 0){ //if atleast one light returned
+			var lightKeys = Object.keys(lightList);
+			for(var lightCount = 0; lightCount < lightKeys.length; lightCount++){
+				getLightState(lightKeys[lightCount]);
+			}
+			waitForCalls(listLength);	//see waitForCalls function (2nd)Below   VVV
+		}
+	}
+}
+
+function getLightState(lightKey){
+	$.ajax({url:baseURL+lightKey,
+			async:"false",
+			crossDomain:"true",
+			type:"GET",
+			complete: function(state){
+				lightData[lightKey] = state.responseJSON;  
+			}
+	});	
+}
+
+function waitForCalls(listLen){		//applies setTimeout loop 250ms to check length of lightList against synchronus-ajax populated lightData array
+	if(lightData.length-1 < listLen){// -1 for extra "0" light
+		setTimeout(function(){waitForCalls(listLen);},250);
+	} else {
+		addTouchHandlers(listLen);
+	}
+}
+
+function addTouchHandlers(maxTouches){
+	//====================TOUCH-START=====================//
+	document.addEventListener("touchstart", function(e){
+		e.preventDefault();
+		var touchesLength = e.touches.length;
+		if(touchesLength <= maxTouches){
+			changeLight(touchesLength);
+			var currentTouch = e.changedTouches[0];
+			addRing(currentTouch.identifier,currentTouch.pageX-60,currentTouch.pageY-47);
+		}
+	}, false);
+	//====================TOUCH-MOVE======================//
+	document.addEventListener("touchmove", function(e){
+		e.preventDefault();
+		var touchesLength = e.touches.length;
+		if(touchesLength <= maxTouches){
+			var currentTouch = e.changedTouches[0];
+			updateRing(currentTouch.identifier,currentTouch.pageX-60,currentTouch.pageY-47);
+		}
+	}, false);
+	//====================TOUCH-END=======================//
+		document.addEventListener("touchend", function(e){
+		e.preventDefault();
+		var touchesLength = e.touches.length;
+		if(touchesLength <= maxTouches){
+			changeLight(touchesLength);
+			var currentTouch = e.changedTouches[0];
+			removeRing(currentTouch.identifier);
+		}
+	}, false);
+	//====================GYROSCOPE-LISTEN================//
+	window.ondevicemotion = function(event) {
+        gyroData["x"] = event.accelerationIncludingGravity.x;  
+        gyroData["y"] = event.accelerationIncludingGravity.y;  
+        gyroData["z"] = event.accelerationIncludingGravity.z;
+    }
+}
+
+function addRing(id,x,y){
+	bgElem.innerHTML += '<span id="' + id + '" class="ring ringStartAnimation" style="top:' + y + 'px;left:' + x + 'px;z-index:' + id + ';"></span>';
+}
+
+function updateRing(id,x,y){
+	var currentRing = d(id);
+	currentRing.style.top = y + "px";
+	currentRing.style.left = x + "px";
+}
+
+function removeRing(id){
+	d(id).style.visibility = "hidden";
+}
+
+/*function removeRing(id){
+	var parent = bgElem;
+	var child = d(id);
+	parent.removeChild(child);
+}*/
+
+function changeLight(light){
+	clearInterval(gyroInterval);
+	currentLight = light;
+	changeBackground(currentLight);
+	d("nameContainer").innerHTML = lightData[currentLight]["name"];
+	if(currentLight != "0"){	//atleast one finger is touching, and one light is selected
+		var initialData = {};
+		initialData["x"] = gyroData["x"];
+		initialData["y"] = gyroData["y"];
+		initialData["z"] = gyroData["z"];
+		trackGyro(initialData,currentLight);
+	} else {	//user is not touching anything, no light select, rested state
+		bgElem.innerHTML = '<span id="nameContainer"></span>';
+	}
+}
+
+function changeBackground(light){
+	var hue = returnHue(lightData[light]["state"]["hue"]);
+	var sat = returnSat(lightData[light]["state"]["sat"]);
+	var bri = returnBri(lightData[light]["state"]["bri"]);
+	var colorStr = "hsv " + hue + "," + sat + "%," + bri + "%";
+	var t = tinycolor(colorStr);
+	bgElem.style.backgroundColor = t.toHslString();
+}
+
+function returnHue(hue){ //return degrees 0 - 360 ex:  150
+return Math.round(hue*.00549325);
+}
+
+function returnSat(sat){ //return percent 0 - 100% ex:  50
+return Math.round(100*(sat/254));
+}
+
+function returnBri(bri){ //return percent 0 - 100% ex:  50
+return Math.round(100*(bri/254));
+}
+
+function trackGyro(initialData,lightNum){
+	var speed = 1.25;
+	var oldHue = lightData[lightNum]["state"]["hue"];
+	var oldBri = lightData[lightNum]["state"]["bri"];
+	gyroInterval = setInterval(function(){
+		var xDiff = initialData["x"] - gyroData["x"]; //*18
+		var yDiff = initialData["y"] - gyroData["y"]; //*5
+		//var zDiff = initialData["z"] - gyroData["z"];
+		
+		//apply x val to hue value
+		///*
+		var hueVal = Math.round((xDiff * 3276.75 * speed)+oldHue);
+		if(hueVal > 65535) {hueVal-=65535;}
+		else if(hueVal < 0) {hueVal+=65535;}
+		//*/
+		
+		//apply y val to bri value
+		var briVal = Math.round((yDiff * 12.7 * speed)+oldBri);
+		if(briVal > 254) {briVal=254;}
+		else if(briVal < 0) {briVal= -1;}
+		
+		var finalStr = "{"; //Opens final string
+		
+		if(lightData[lightNum]["state"]["on"] === false && briVal != -1){
+			finalStr += '"on":true,';
+			lightData[lightNum]["state"]["on"] = true;
+		}
+		
+		/*
+		if(hueVal != lightData[lightNum]["state"]["hue"] && lightData[lightNum]["state"]["on"] === true){
+			finalStr += '"hue":' + hueVal + ',';
+			finalStr += '"sat":254,';
+		}
+		*/
+		
+		if(briVal != lightData[lightNum]["state"]["bri"]){
+			if(briVal == -1){
+				if(lightData[lightNum]["state"]["on"] === true){
+					finalStr += '"on":false,';
+					lightData[lightNum]["state"]["on"] = false;
+				}
+				briVal=0;
+			} else {
+				finalStr += '"bri":' + briVal + ',';
+			}
+		}
+		
+		sLength = finalStr.length;
+		if(sLength > 1){
+			if(finalStr.charAt(sLength - 1) == ",") {
+				finalStr = finalStr.substring(0, sLength - 1);
+			}
+			finalStr+="}"; //closes final string
+			sendLightCommand(lightNum, finalStr);
+			lightData[lightNum]["state"]["hue"] = hueVal; //set values to array
+			lightData[lightNum]["state"]["bri"] = briVal;
+			changeBackground(lightNum); //set value to screen
+		}
+	},100);		//100ms = 10 commands per second			restriction is on the light hardware + base
+}
+
+function sendLightCommand(light, command){
+	$.ajax({
+		url:baseURL + light+"/state/",
+		type:"PUT",
+		crossDomain:"true",
+		async:"true",
+		data:command
+	});
+}
+
+function d(a) {return document.getElementById(a)};
+</script>
+</head>
+
+<body id="background">
+<span id="nameContainer">Touch to Start Controlling Lights</span>
+</body>
+</html>
